@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GHOSTSAT // Satellite Surveillance Station</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body { height:100%; background:#020604; color:#0f0; font-family:'Consolas','Courier New',monospace; }
+body { display:flex; flex-direction:column; overflow:hidden; }
+
+#topbar { display:flex; align-items:center; justify-content:space-between; padding:8px 14px; background:#031008; border-bottom:1px solid #0a4a1f; font-size:13px; }
+#topbar .brand { color:#0f0; font-weight:bold; letter-spacing:1px; }
+#topbar .brand b { color:#ff5555; }
+#status { color:#55ff55; }
+.blink { animation:blink 1s step-end infinite; }
+@keyframes blink { 50% { opacity:0; } }
+
+#main { flex:1; display:flex; min-height:0; }
+#mapcol { position:relative; flex:2; display:flex; flex-direction:column; border-right:1px solid #0a4a1f; min-width:0; }
+#mapwrap { position:relative; flex:1; min-height:0; }
+#map { position:absolute; inset:0; z-index:1; filter:hue-rotate(90deg) saturate(2) contrast(1.1); }
+#radar { position:absolute; top:50%; left:50%; width:500px; height:500px; margin:-250px 0 0 -250px; border-radius:50%; z-index:500; pointer-events:none; display:none; }
+#maplabel { position:absolute; top:10px; left:10px; z-index:1000; background:#031008cc; padding:6px 10px; border:1px solid #0a4a1f; font-size:12px; }
+#mapstatus { position:absolute; bottom:10px; left:10px; z-index:1000; background:#031008cc; padding:4px 8px; font-size:11px; color:#55ff55; }
+#toolbar { position:absolute; top:10px; right:10px; z-index:1000; display:flex; gap:6px; flex-wrap:wrap; max-width:240px; }
+#toolbar button { background:#031008; color:#0f0; border:1px solid #0a4a1f; padding:6px 10px; cursor:pointer; font-family:inherit; font-size:12px; }
+#toolbar button:hover { background:#0a4a1f; }
+#toolbar button.active { background:#0a4a1f; border-color:#0f0; }
+
+#camcol { flex:1; display:flex; flex-direction:column; border-right:1px solid #0a4a1f; min-width:0; }
+#camhead { padding:8px 12px; background:#031008; border-bottom:1px solid #0a4a1f; font-size:14px; }
+#camhead span { color:#ffff55; }
+#cams { flex:1; overflow-y:auto; padding:8px; }
+.camcard { background:#05120a; border:1px solid #0a4a1f; margin-bottom:8px; padding:6px; cursor:pointer; }
+.camcard.active { border-color:#0f0; box-shadow:0 0 8px #0f0a; }
+.camcard .cid { color:#ff5555; font-size:12px; }
+.camcard .loc { color:#55aaff; font-size:11px; }
+.camcard .st { font-size:11px; float:right; }
+.st.on { color:#55ff55; } .st.off { color:#ff5555; }
+.camcard .mini { width:100%; height:70px; background:#000; margin-top:4px; border:1px solid #0a4a1f; display:flex; align-items:center; justify-content:center; color:#0a4a1f; font-size:10px; overflow:hidden; }
+.camcard.active .mini { border-color:#0f0; color:#0f0; }
+
+#feedcol { flex:2; display:flex; flex-direction:column; min-width:0; }
+#feedhead { padding:8px 12px; background:#031008; border-bottom:1px solid #0a4a1f; font-size:14px; }
+#feedhead span { color:#ffff55; }
+#feed { flex:1; background:#000; position:relative; display:flex; align-items:center; justify-content:center; min-height:0; }
+#feedcanvas { width:100%; height:100%; display:block; }
+#feedoverlay { position:absolute; top:10px; left:10px; font-size:12px; color:#0f0; text-shadow:0 0 4px #0f0; z-index:10; pointer-events:none; }
+#feedoverlay .red { color:#ff5555; }
+#demobadge { position:absolute; bottom:40px; left:50%; transform:translateX(-50%); background:#aa0000; color:#fff; padding:4px 12px; font-size:11px; font-weight:bold; z-index:10; opacity:0.9; pointer-events:none; }
+#zoomctl { position:absolute; bottom:10px; right:10px; display:flex; gap:4px; z-index:10; }
+#zoomctl button { background:#031008; color:#0f0; border:1px solid #0a4a1f; padding:4px 8px; cursor:pointer; font-family:inherit; }
+#zoomctl button:hover { background:#0a4a1f; }
+
+#logbar { border-top:1px solid #0a4a1f; background:#031008; height:120px; display:flex; flex-direction:column; }
+#loghead { padding:4px 12px; border-bottom:1px solid #0a4a1f; font-size:12px; color:#ffff55; }
+#log { flex:1; overflow-y:auto; padding:4px 12px; font-size:12px; }
+#log div { white-space:pre-wrap; }
+.log-warn { color:#ff5555; } .log-ok { color:#55ff55; } .log-info { color:#55aaff; } .log-yellow { color:#ffff55; }
+
+::-webkit-scrollbar { width:6px; } ::-webkit-scrollbar-track { background:#031008;} ::-webkit-scrollbar-thumb { background:#0a4a1f; }
+</style>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+<div id="topbar">
+  <div class="brand">GHOSTSAT <b>//</b> SATELLITE SURVEILLANCE STATION v3.0</div>
+  <div id="state">MODE: <span style="color:#ffff55">OFFLINE-DEMO</span></div>
+  <div id="status"><span class="blink">●</span> LINK: <span id="clock">--:--:--</span></div>
+</div>
+<div id="main">
+  <div id="mapcol">
+    <div id="mapwrap">
+      <div id="map"></div>
+      <div id="radar"></div>
+      <div id="maplabel">SATELLITE LINK // VN-HANOI // LIVE</div>
+      <div id="mapstatus">TRACKING 5 CAM...</div>
+      <div id="toolbar">
+        <button id="btnWindy">🌦 Weather Map</button>
+        <button id="btnRadar">📡 Toggle Radar</button>
+      </div>
+    </div>
+  </div>
+  <div id="camcol">
+    <div id="camhead">■ CAMERAS COMPROMISED <span id="camcount">0</span></div>
+    <div id="cams"></div>
+  </div>
+  <div id="feedcol">
+    <div id="feedhead">■ LIVE FEED <span id="feedname">--</span></div>
+    <div id="feed">
+      <canvas id="feedcanvas" width="640" height="360"></canvas>
+      <div id="feedoverlay"><span class="red">● REC</span> STREAM: ACTIVE<br>LAT/LON: <span id="ovllat">--</span></div>
+      <div id="demobadge">DEMO // SIMULATED FEED</div>
+      <div id="zoomctl"><button id="zin">+</button><button id="zout">−</button></div>
+    </div>
+  </div>
+</div>
+<div id="logbar">
+  <div id="loghead">ACCESS LOG // SIMULATION — NO REAL CONNECTION — CAMERAS FROM PERMITTED PUBLIC SOURCES</div>
+  <div id="log"></div>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+// ====================================================
+//  CAM IMAGES
+//  Place your photos in the  cam-photos/  folder
+//  Rename them to match below (or edit the array):
+//    cam01.jpg  cam02.jpg  cam03.jpg  cam04.jpg  cam05.jpg
+//  Supported formats: .jpg .jpeg .png .gif .webp
+// ====================================================
+var camPhotos = [
+  'cam-photos/cam01.png',
+  'cam-photos/cam02.jpg',
+  'cam-photos/cam03.jpg',
+  'cam-photos/cam04.jpg',
+  'cam-photos/cam05.jpg'
+];
+var camImageEls = [];
+
+function preloadImages(){
+  camPhotos.forEach(function(url, idx){
+    var img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = function(){};
+    img.onerror = function(){};
+    img.src = url + '?t=' + Date.now();
+    camImageEls[idx] = img;
+  });
+}
+preloadImages();
+
+// ---------- MAP ----------
+var map = L.map('map').setView([21.0285, 105.8542], 12);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors'
+}).addTo(map);
+
+// ---------- CAMERA DATA ----------
+var cams = [
+  { id:'CAM-01', name:'JUNCTION-LANG/NGUYEN-CHI-THANH', lat:21.0285, lon:105.8542, on:true, imgIdx:0 },
+  { id:'CAM-02', name:'INTERSECTION-HOAN-KIEM',       lat:21.0300, lon:105.8520, on:true, imgIdx:1 },
+  { id:'CAM-03', name:'ALLEY-NGUYEN-HUU-HUAN',        lat:21.0250, lon:105.8490, on:false, imgIdx:2 },
+  { id:'CAM-04', name:'GATE-BAI-GIANG-PARK',          lat:21.0320, lon:105.8550, on:true, imgIdx:3 },
+  { id:'CAM-05', name:'VIADUCT-CAU-GIAY',             lat:21.0330, lon:105.7900, on:true, imgIdx:4 }
+];
+
+var markers = {};
+cams.forEach(function(c){
+  var m = L.circleMarker([c.lat,c.lon], {
+    radius:8, color:'#0f0', fillColor:'#0f0', fillOpacity:0.5, weight:c.on?2:1
+  }).addTo(map).bindTooltip(c.id+' — '+c.name);
+  m.on('click', function(){ selectCam(c.id); });
+  markers[c.id]=m;
+});
+
+// ---------- CAM LIST ----------
+var camListEl = document.getElementById('cams');
+var selected = null;
+
+function renderCams(){
+  camListEl.innerHTML='';
+  document.getElementById('camcount').textContent = cams.filter(function(c){return c.on;}).length;
+  cams.forEach(function(c){
+    var card=document.createElement('div');
+    card.className='camcard'+(selected===c.id?' active':'');
+    var imgSrc = camPhotos[c.imgIdx];
+    card.innerHTML='<div class="cid">'+c.id+'</div>'
+      +'<div class="st '+ (c.on?'on':'off')+'">'+(c.on?'● LIVE':'✖ OFFLINE')+'</div>'
+      +'<div class="loc">'+c.name+'</div>'
+      +'<div class="loc">'+c.lat.toFixed(4)+', '+c.lon.toFixed(4)+'</div>'
+      +'<div class="mini"><img src="'+imgSrc+'" style="width:100%;height:100%;object-fit:cover;filter:brightness(0.6) hue-rotate(90deg) saturate(1.5);" onerror="this.style.display=\'none\';this.parentNode.textContent=\'NO IMAGE\';"></div>';
+    card.addEventListener('click', function(){ selectCam(c.id); });
+    camListEl.appendChild(card);
+  });
+}
+
+function selectCam(id){
+  var c = cams.find(function(x){return x.id===id;});
+  if(!c) return;
+  selected=c.id;
+  renderCams();
+  document.getElementById('feedname').textContent=c.id+' // '+c.name;
+  document.getElementById('ovllat').textContent=c.lat.toFixed(4)+', '+c.lon.toFixed(4);
+  if(c.on){ drawLoop(); addLog('LINK','Establishing connection to '+c.id+' ('+c.name+')','ok'); }
+  else { addLog('WARN','Camera '+c.id+' is OFFLINE — no signal','warn'); }
+  map.flyTo([c.lat,c.lon],15);
+}
+
+// ---------- FEED: IMAGE + HACKER NOISE ----------
+var canvas=document.getElementById('feedcanvas'), ctx=canvas.getContext('2d');
+var zoomLvl=1, feedTimer=null;
+var noiseCanvas = document.createElement('canvas');
+var noiseCtx = noiseCanvas.getContext('2d');
+noiseCanvas.width = 640;
+noiseCanvas.height = 360;
+
+// Generate noise texture
+function generateNoiseTexture(){
+  var img = noiseCtx.createImageData(640, 360);
+  var data = img.data;
+  for(var i=0; i<data.length; i+=4){
+    var v = Math.floor(Math.random()*50);
+    data[i] = 0;
+    data[i+1] = v;
+    data[i+2] = 0;
+    data[i+3] = Math.floor(Math.random()*80) + 20;
+  }
+  noiseCtx.putImageData(img, 0, 0);
+}
+
+// Draw noise overlay
+function drawNoiseOverlay(){
+  generateNoiseTexture();
+  ctx.globalAlpha = 0.35;
+  ctx.drawImage(noiseCanvas, 0, 0, canvas.width, canvas.height);
+  ctx.globalAlpha = 1.0;
+}
+
+// Scan lines
+function drawScanLines(){
+  var lineSpacing = 3;
+  ctx.strokeStyle = 'rgba(0,255,0,0.06)';
+  ctx.lineWidth = 1;
+  for(var y=0; y<canvas.height; y+=lineSpacing){
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(canvas.width, y);
+    ctx.stroke();
+  }
+}
+
+// Glitch lines
+function drawGlitchLine(){
+  var count = Math.floor(Math.random()*4) + 1;
+  for(var i=0; i<count; i++){
+    var y = Math.floor(Math.random()*canvas.height);
+    var h = Math.floor(Math.random()*3) + 1;
+    var offset = Math.floor(Math.random()*20) - 10;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, y, canvas.width, h);
+    ctx.clip();
+    var srcX = Math.max(0, offset);
+    var srcW = canvas.width - Math.abs(offset);
+    ctx.drawImage(canvas, srcX, y, srcW, h, srcX + (offset>0?-offset:0), y, srcW, h);
+    ctx.restore();
+    ctx.fillStyle = 'rgba(0,255,0,' + (Math.random()*0.15+0.05) + ')';
+    ctx.fillRect(0, y, canvas.width, h);
+  }
+}
+
+// Scan beam
+function drawScanBeam(){
+  var y = Math.floor(Math.random()*canvas.height);
+  var grad = ctx.createLinearGradient(0, y-2, 0, y+2);
+  grad.addColorStop(0, 'rgba(0,255,0,0)');
+  grad.addColorStop(0.5, 'rgba(0,255,0,0.2)');
+  grad.addColorStop(1, 'rgba(0,255,0,0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, y-2, canvas.width, 4);
+}
+
+// RGB shift
+function drawRGBShift(){
+  if(Math.random() > 0.85){
+    var shiftX = Math.floor(Math.random()*6) - 3;
+    var shiftY = Math.floor(Math.random()*4) - 2;
+    ctx.globalCompositeOperation = 'screen';
+    ctx.globalAlpha = 0.12;
+    ctx.drawImage(canvas, shiftX, shiftY);
+    ctx.globalAlpha = 1.0;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+}
+
+// Vignette
+function drawVignette(){
+  var grad = ctx.createRadialGradient(
+    canvas.width/2, canvas.height/2, canvas.width*0.25,
+    canvas.width/2, canvas.height/2, canvas.width*0.7
+  );
+  grad.addColorStop(0, 'rgba(0,0,0,0)');
+  grad.addColorStop(1, 'rgba(0,0,0,0.6)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+}
+
+function noisyFrame(){
+  var cam = cams.find(function(x){return x.id===selected;});
+  if(!cam) return;
+  var img = camImageEls[cam.imgIdx];
+
+  // 1. Draw base image with green hacker filter
+  ctx.save();
+  ctx.filter = 'brightness(0.45) contrast(1.3) saturate(1.6) hue-rotate(80deg)';
+  if(img && img.complete && img.naturalWidth > 0){
+    var jx = Math.random()*4-2;
+    var jy = Math.random()*4-2;
+    var scale = 1.05;
+    ctx.drawImage(img, -canvas.width*(scale-1)/2 + jx, -canvas.height*(scale-1)/2 + jy, canvas.width*scale, canvas.height*scale);
+  } else {
+    ctx.fillStyle='#001a00';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+  }
+  ctx.restore();
+
+  // 2. Noise particles
+  drawNoiseOverlay();
+
+  // 3. Scan lines
+  drawScanLines();
+
+  // 4. Glitch lines
+  drawGlitchLine();
+
+  // 5. Scan beam
+  drawScanBeam();
+
+  // 6. RGB shift
+  drawRGBShift();
+
+  // 7. Vignette
+  drawVignette();
+
+  // 8. Overlay text
+  ctx.fillStyle='#0f0'; ctx.font='11px monospace';
+  ctx.shadowColor='#0f0'; ctx.shadowBlur=4;
+  ctx.fillText('PTZ_PAN='+Math.floor(Math.random()*360)+' TILT='+Math.floor(Math.random()*90)+' Z='+(zoomLvl.toFixed(2)+'x'), 8, canvas.height-8);
+  ctx.fillText('BUF:'+Math.floor(Math.random()*9999).toString(16).toUpperCase()+' BITRATE:'+Math.floor(Math.random()*4000)+'kbps', 8, 20);
+  if(selected) ctx.fillText('SIGNAL: OK  LATENCY: '+Math.floor(Math.random()*80)+'ms', 8, 34);
+  ctx.shadowBlur=0;
+
+  // 9. Timestamp
+  var now = new Date();
+  var ts = now.getFullYear()+'-'+(''+(now.getMonth()+1)).padStart(2,'0')+'-'+(''+now.getDate()).padStart(2,'0')+' '
+    +(''+now.getHours()).padStart(2,'0')+':'+(''+now.getMinutes()).padStart(2,'0')+':'+(''+now.getSeconds()).padStart(2,'0');
+  ctx.fillStyle='rgba(255,85,85,0.8)';
+  ctx.fillText('REC ● '+ts, canvas.width-180, canvas.height-8);
+}
+
+function drawLoop(){
+  if(feedTimer) clearInterval(feedTimer);
+  feedTimer=setInterval(function(){
+    var c = cams.find(function(x){return x.id===selected;});
+    if(!c || !c.on){ clearInterval(feedTimer); feedTimer=null; return; }
+    noisyFrame();
+  },90);
+}
+
+document.getElementById('zin').onclick=function(){ zoomLvl=Math.min(4,zoomLvl+0.5); addLog('CTRL','Zoom in -> '+zoomLvl.toFixed(1)+'x','info'); };
+document.getElementById('zout').onclick=function(){ zoomLvl=Math.max(1,zoomLvl-0.5); addLog('CTRL','Zoom out -> '+zoomLvl.toFixed(1)+'x','info'); };
+
+// ---------- WINDY WEATHER ----------
+var btnWindy=document.getElementById('btnWindy');
+var windyAdded=false, windyActive=false;
+btnWindy.addEventListener('click', function(){
+  if(!windyActive){
+    if(!windyAdded){
+      var wDiv=document.createElement('div');
+      wDiv.id='windy'; wDiv.style.position='absolute'; wDiv.style.inset='0'; wDiv.style.zIndex='2';
+      document.getElementById('mapwrap').appendChild(wDiv);
+      wDiv.innerHTML='<iframe width="100%" height="100%" src="https://embed.windy.com/embed2.html?lat=21.0285&lon=105.8542&zoom=8&level=surface&overlay=wind&menu=&message=&marker=&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=default&metricTemp=default&radarRange=-1"></iframe>';
+      windyAdded=true;
+    }
+    document.getElementById('windy').style.display='block';
+    windyActive=true; btnWindy.classList.add('active'); btnWindy.textContent='🌦 Disable Weather';
+    addLog('WINDY','Enabled weather overlay (public embed)','info');
+  } else {
+    document.getElementById('windy').style.display='none';
+    windyActive=false; btnWindy.classList.remove('active'); btnWindy.textContent='🌦 Weather Map';
+    addLog('WINDY','Disabled weather overlay','info');
+  }
+});
+
+// ---------- RADAR ----------
+var btnRadar=document.getElementById('btnRadar');
+var radarEl=document.getElementById('radar');
+var radarOn=false, radarTimer=null, deg=0;
+
+function drawRadar(){
+  var c=radarEl.getContext('2d');
+  c.clearRect(0,0,500,500);
+  c.strokeStyle='rgba(0,255,0,0.3)'; c.lineWidth=1;
+  for(var i=1;i<=4;i++){ c.beginPath(); c.arc(250,250,62.5*i,0,Math.PI*2); c.stroke(); }
+  c.strokeStyle='rgba(0,255,0,0.15)';
+  c.beginPath(); c.moveTo(0,250); c.lineTo(500,250); c.stroke();
+  c.beginPath(); c.moveTo(250,0); c.lineTo(250,500); c.stroke();
+  c.beginPath(); c.moveTo(250,250); c.arc(250,250,250,deg*Math.PI/180,(deg+15)*Math.PI/180);
+  c.closePath(); c.fillStyle='rgba(0,255,0,0.15)'; c.fill();
+  c.strokeStyle='rgba(0,255,0,0.8)'; c.lineWidth=2;
+  c.beginPath(); c.moveTo(250,250); c.lineTo(250+245*Math.cos(deg*Math.PI/180), 250+245*Math.sin(deg*Math.PI/180)); c.stroke();
+  for(var j=0;j<6;j++){
+    var a=Math.random()*2*Math.PI, r=Math.random()*230;
+    c.beginPath(); c.arc(250+r*Math.cos(a),250+r*Math.sin(a),3,0,Math.PI*2);
+    c.fillStyle='rgba(255,255,85,0.8)'; c.fill();
+  }
+  deg=(deg+2)%360;
+}
+
+btnRadar.addEventListener('click', function(){
+  radarOn=!radarOn;
+  radarEl.style.display=radarOn?'block':'none';
+  btnRadar.classList.toggle('active');
+  btnRadar.textContent=radarOn?'📡 Disable Radar':'📡 Toggle Radar';
+  if(radarOn){ if(!radarTimer) radarTimer=setInterval(drawRadar,50); addLog('RADAR','Radar activated (simulated) — Hanoi region','info'); }
+  else { clearInterval(radarTimer); radarTimer=null; addLog('RADAR','Radar deactivated','info'); }
+});
+
+// ---------- LOG ----------
+var logEl=document.getElementById('log');
+function addLog(tag,msg,cls){
+  var d=document.createElement('div');
+  d.className='log-'+cls;
+  d.textContent=timeStr()+' ['+tag+'] '+msg;
+  logEl.appendChild(d);
+  while(logEl.children.length>150) logEl.removeChild(logEl.firstChild);
+  logEl.scrollTop=logEl.scrollHeight;
+}
+function timeStr(){
+  var d=new Date(); var p=function(x){return (x<10?'0':'')+x;};
+  return p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());
+}
+setInterval(function(){ document.getElementById('clock').textContent=timeStr(); },1000);
+
+// ---------- FAKE EVENTS ----------
+setInterval(function(){
+  var r=Math.random();
+  if(r<0.3) addLog('SCAN','Scanning random port '+Math.floor(Math.random()*65535)+'/tcp ...','info');
+  else if(r<0.5) addLog('PACKET','Packet from 1.2.'+Math.floor(Math.random()*255)+'.'+Math.floor(Math.random()*255),'info');
+  else if(r<0.65) addLog('WARN','Camera CAM-0'+Math.floor(Math.random()*5+1)+' motion detected','warn');
+  else if(r<0.85) addLog('SYNC','Satellite data sync... OK','ok');
+},2500);
+
+// ---------- BOOT SEQUENCE ----------
+function boot(){
+  var msgs=[
+    ['SYS','GHOSTSAT v3.0 initializing...','info'],
+    ['SYS','Loading map + radar + weather embed (public)...','info'],
+    ['OK','Locked onto 5 cameras in Hanoi region (SIMULATED feeds)','ok'],
+    ['OK','Ready — use map buttons to toggle weather / radar','ok'],
+    ['WARN','DEMO: no real camera connection, all feeds are simulated','warn']
+  ];
+  var i=0;
+  var iv=setInterval(function(){
+    if(i>=msgs.length){ clearInterval(iv); renderCams(); selectCam('CAM-01'); return; }
+    addLog(msgs[i][0],msgs[i][1],msgs[i][2]); i++;
+  },400);
+}
+boot();
+
+})();
+</script>
+</body>
+</html>
